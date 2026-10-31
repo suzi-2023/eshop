@@ -1,5 +1,5 @@
 import "server-only";
-import { stepCountIs, streamText, tool, type ModelMessage } from "ai";
+import { ToolChoiceViolationError, stepCountIs, streamText, tool, type ModelMessage } from "ai";
 import {
   buildCatalogFilterSchema,
   filterToQuery,
@@ -30,7 +30,7 @@ import type { Product } from "@/lib/types";
 const SYSTEM_PROMPT = `You are the shopping assistant for ${siteConfig.name}, an online store selling electronics, footwear, watches, bags and lifestyle goods. Prices are in Indian rupees.
 
 How to help:
-- Always call search_catalog before recommending anything. Try a second, broader search if the first returns nothing.
+- Always call search_catalog before recommending anything. Use at most two searches (a second, broader one only if the first returns nothing), then answer with what you found.
 - Only mention products returned by the tool. Never invent products, prices, specs or stock. If nothing fits, say so and suggest the closest alternatives.
 - Recommend 1-3 products. For each, link the name exactly as [Product name](url) using the url from the tool, give the price, and one honest sentence on why it fits (and a trade-off if relevant).
 - If budget or use case is missing, you may ask one short clarifying question, but still show the best options you found.
@@ -104,11 +104,12 @@ async function runAssistant(
     tools: { search_catalog: searchCatalog },
     // Each model call or tool execution is one step.
     stopWhen: stepCountIs(aiConfig.assistantMaxSteps),
-    // On the final step forbid further tool calls so the model must write its
+    // On the final step withdraw the tool entirely so the model must write its
     // answer from the results it already has, instead of ending the loop
-    // mid-search with no prose (finish reason "tool-calls").
+    // mid-search with no prose (finish reason "tool-calls"). Removing the tool
+    // is more reliable than `toolChoice: "none"`, which some models ignore.
     prepareStep: ({ stepNumber }) =>
-      stepNumber >= aiConfig.assistantMaxSteps - 1 ? { toolChoice: "none" } : undefined,
+      stepNumber >= aiConfig.assistantMaxSteps - 1 ? { activeTools: [] } : undefined,
     maxOutputTokens: aiConfig.assistantMaxTokens,
     maxRetries: 1,
     abortSignal: signal,
@@ -117,27 +118,35 @@ async function runAssistant(
 
   let answer = "";
 
-  for await (const part of result.fullStream) {
-    switch (part.type) {
-      case "text-delta":
-        answer += part.text;
-        send({ type: "text", text: part.text });
-        break;
-      case "error":
-        // Surface provider errors through the normal error path.
-        throw part.error;
-      case "finish":
-        if (part.finishReason === "content-filter") {
-          send({ type: "text", text: "Sorry, I can't help with that request here." });
-        } else if (part.finishReason !== "stop") {
-          // "length" means the token budget ran out (thinking counts too);
-          // log it so the cap in aiConfig can be tuned from real traffic.
-          console.warn(
-            `[assistant] finished with reason "${part.finishReason}" after ${part.totalUsage.outputTokens} output tokens`,
-          );
-        }
-        break;
+  try {
+    for await (const part of result.fullStream) {
+      switch (part.type) {
+        case "text-delta":
+          answer += part.text;
+          send({ type: "text", text: part.text });
+          break;
+        case "error":
+          // Surface provider errors through the normal error path.
+          throw part.error;
+        case "finish":
+          if (part.finishReason === "content-filter") {
+            send({ type: "text", text: "Sorry, I can't help with that request here." });
+          } else if (part.finishReason !== "stop") {
+            // "length" means the token budget ran out (thinking counts too);
+            // log it so the cap in aiConfig can be tuned from real traffic.
+            console.warn(
+              `[assistant] finished with reason "${part.finishReason}" after ${part.totalUsage.outputTokens} output tokens`,
+            );
+          }
+          break;
+      }
     }
+  } catch (error) {
+    // A model that insists on calling a tool it was not offered ends the
+    // stream with this error; the products it already found are still worth
+    // showing, so fall through to the cards instead of failing the reply.
+    if (!ToolChoiceViolationError.isInstance(error) || seen.size === 0) throw error;
+    console.warn("[assistant] model attempted a tool call on the final step; showing results");
   }
 
   // Attach cards for products linked in the answer (fall back to the first
