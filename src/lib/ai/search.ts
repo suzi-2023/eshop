@@ -1,14 +1,13 @@
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { Output, generateText } from "ai";
 import {
   buildCatalogFilterSchema,
   describeFilter,
   filterToQuery,
   type CatalogFilter,
 } from "@/lib/ai/catalog-filter";
-import { getAnthropic } from "@/lib/ai/client";
 import { aiConfig } from "@/lib/ai/config";
+import { classifyAiError, getLanguageModel } from "@/lib/ai/provider";
 import { getCategories } from "@/lib/catalog";
 import type { ProductQuery } from "@/lib/types";
 
@@ -53,36 +52,41 @@ export async function interpretSearch(rawQuery: string): Promise<SearchInterpret
   const schema = buildCatalogFilterSchema(categories);
 
   try {
-    const client = getAnthropic();
-    const response = await client.messages.parse({
-      model: aiConfig.searchModel,
-      max_tokens: aiConfig.searchMaxTokens,
+    const result = await generateText({
+      model: getLanguageModel("search"),
       system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: query }],
-      // Pure extraction: the lowest effort is plenty and keeps latency down.
-      output_config: { effort: "low", format: zodOutputFormat(schema) },
+      prompt: query,
+      output: Output.object({ schema }),
+      maxOutputTokens: aiConfig.searchMaxTokens,
+      maxRetries: 1,
+      abortSignal: AbortSignal.timeout(aiConfig.searchTimeoutMs),
     });
 
-    // Safety classifiers can decline a request; treat it like any other miss.
-    if (response.stop_reason === "refusal" || !response.parsed_output) return fallback;
+    // A safety filter can decline the request; treat it like any other miss.
+    if (result.finishReason === "content-filter") return fallback;
 
-    const filter: CatalogFilter = response.parsed_output;
+    // `output` is validated against the schema (throws if the model's JSON
+    // did not match), so the filter is safe to use as-is.
+    const filter: CatalogFilter = result.output;
     return {
       query: filterToQuery(filter),
       summary: describeFilter(filter, categories),
       source: "ai",
     };
   } catch (error) {
-    // Degrade to keyword search rather than failing the page. Typed errors
-    // let us tell configuration problems from transient ones in the logs.
-    if (error instanceof Anthropic.AuthenticationError) {
-      console.error("[ai-search] invalid ANTHROPIC_API_KEY");
-    } else if (error instanceof Anthropic.RateLimitError) {
-      console.warn("[ai-search] rate limited, falling back to keyword search");
-    } else if (error instanceof Anthropic.APIError) {
-      console.error(`[ai-search] API error ${error.status}: ${error.message}`);
-    } else {
-      console.error("[ai-search] unexpected error", error);
+    // Degrade to keyword search rather than failing the page.
+    switch (classifyAiError(error)) {
+      case "auth":
+        console.error("[ai-search] provider rejected the API key");
+        break;
+      case "rate-limit":
+        console.warn("[ai-search] rate limited, falling back to keyword search");
+        break;
+      case "aborted":
+        console.warn("[ai-search] timed out, falling back to keyword search");
+        break;
+      default:
+        console.error("[ai-search] failed, falling back to keyword search", error);
     }
     return fallback;
   }

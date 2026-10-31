@@ -15,7 +15,10 @@ export async function GET(request: Request) {
 
   if (!isAiConfigured()) {
     return Response.json(
-      { error: "AI search is not enabled. Set ANTHROPIC_API_KEY on the server." },
+      {
+        error:
+          "AI search is not enabled. Set GOOGLE_GENERATIVE_AI_API_KEY or ANTHROPIC_API_KEY on the server.",
+      },
       { status: 503 },
     );
   }

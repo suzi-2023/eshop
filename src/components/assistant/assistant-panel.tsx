@@ -133,7 +133,10 @@ export function AssistantPanel({
           </p>
           {!enabled && (
             <p className="mt-4 text-xs text-primary-foreground/60">
-              Add <code className="rounded bg-white/10 px-1 py-0.5">ANTHROPIC_API_KEY</code> to the
+              Add a Gemini key (
+              <code className="rounded bg-white/10 px-1 py-0.5">GOOGLE_GENERATIVE_AI_API_KEY</code>)
+              or a Claude key (
+              <code className="rounded bg-white/10 px-1 py-0.5">ANTHROPIC_API_KEY</code>) to the
               server environment to turn the assistant on.
             </p>
           )}

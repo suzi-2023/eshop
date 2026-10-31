@@ -9,7 +9,7 @@ A modern, AI-ready e-commerce storefront built with Next.js 16, TypeScript, Tail
 - **Zero-config dev mode**: without a `DATABASE_URL` the app serves the bundled demo catalog, so the UI runs right after `npm install`.
 - **Cart**: client-side, persisted in `localStorage` (server-side cart table is ready for when auth lands).
 
-- **AI features (Claude API)**: natural-language product search and a streaming shopping assistant that recommends only products from the catalog. Both switch on when `ANTHROPIC_API_KEY` is set and degrade gracefully when it is not.
+- **AI features**: natural-language product search and a streaming shopping assistant that recommends only products from the catalog. Built on the Vercel AI SDK, so the provider is a configuration choice: Google Gemini (free tier) or Anthropic Claude. Both features switch on when a provider key is set and degrade gracefully when it is not.
 
 Not yet included (planned next steps): authentication, checkout and payments, admin, and AI-written product descriptions.
 
@@ -40,15 +40,23 @@ Restart `npm run dev`; the app now reads from Postgres. `npm run db:studio` open
 
 ### Enable the AI features
 
-1. Create an API key at https://platform.claude.com and set a monthly spend limit there.
-2. Add `ANTHROPIC_API_KEY` to `.env` (locally) and to Vercel's environment variables.
+Pick a provider and add its key to `.env` (locally) and to Vercel's environment variables:
+
+| Provider         | Key                            | Get it from                                                                        | Default models (search / assistant)          |
+| ---------------- | ------------------------------ | ---------------------------------------------------------------------------------- | -------------------------------------------- |
+| Google Gemini    | `GOOGLE_GENERATIVE_AI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey), free tier with rate limits | `gemini-3.5-flash-lite` / `gemini-3.5-flash` |
+| Anthropic Claude | `ANTHROPIC_API_KEY`            | [Claude Console](https://platform.claude.com), pay as you go                       | `claude-haiku-5-5` / `claude-sonnet-5-5`     |
+
+If both keys are present Gemini is used; set `AI_PROVIDER=claude` or `AI_PROVIDER=gemini` to force one. Override the models with `AI_SEARCH_MODEL` / `AI_ASSISTANT_MODEL`.
 
 That turns on two features:
 
-- **AI search**: the sparkle toggle in the search box sends the query with `?ai=1`. `src/lib/ai/search.ts` asks Claude (structured output) to turn the sentence into catalog filters (keywords, category, price range, sort); the normal catalog query then runs them. The products page shows what was understood and offers an exact-match fallback. If the API is unavailable the page silently falls back to keyword search.
+- **AI search**: the sparkle toggle in the search box sends the query with `?ai=1`. `src/lib/ai/search.ts` asks the model (structured output) to turn the sentence into catalog filters (keywords, category, price range, sort); the normal catalog query then runs them. The products page shows what was understood and offers an exact-match fallback. If the API is unavailable the page silently falls back to keyword search.
 - **Shopping assistant**: the chat panel on the home page streams from `POST /api/assistant`. `src/lib/ai/assistant.ts` runs a small tool-use loop with one tool, `search_catalog`, so the model can only recommend products it actually found, and every link points at a real product page.
 
-Cost controls live in `src/lib/ai/config.ts`: Haiku for search interpretation, Sonnet for the assistant, a 1,024-token reply cap, at most four API round-trips per reply and a 12-message history window. Override the models with `AI_SEARCH_MODEL` / `AI_ASSISTANT_MODEL` (for example `claude-opus-5-5` for the assistant) when quality matters more than cost. There is no per-user rate limiting yet; add one (for example Upstash Ratelimit on the two routes) before launch.
+Cost controls live in `src/lib/ai/config.ts`: a small model for search interpretation, a mid-tier model for the assistant, a 1,024-token reply cap, at most four model steps per reply and a 12-message history window. On the Gemini free tier a traffic spike hits the rate limit (requests fail gracefully) rather than a bill. There is no per-user rate limiting yet; add one (for example Upstash Ratelimit on the two routes) before launch.
+
+Adding another provider means one more case in `src/lib/ai/provider.ts` and one more key check in `src/lib/ai/config.ts`; nothing else changes.
 
 `GET /api/search?q=...` returns the same AI interpretation as JSON for debugging or a future mobile app.
 
@@ -101,7 +109,7 @@ src/
 
 1. Push this repository to GitHub.
 2. Import it at https://vercel.com/new. Vercel detects Next.js automatically.
-3. Add `DATABASE_URL` (and later `ANTHROPIC_API_KEY`) under Project > Settings > Environment Variables.
+3. Add `DATABASE_URL` and an AI provider key (`GOOGLE_GENERATIVE_AI_API_KEY` or `ANTHROPIC_API_KEY`) under Project > Settings > Environment Variables.
 4. Deploy. Every push to `main` redeploys.
 
 The Hobby plan is for non-commercial use; upgrade before taking real payments.

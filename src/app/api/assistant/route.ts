@@ -30,7 +30,10 @@ const BodySchema = z.object({
 export async function POST(request: Request) {
   if (!isAiConfigured()) {
     return Response.json(
-      { error: "The assistant is not enabled. Set ANTHROPIC_API_KEY on the server." },
+      {
+        error:
+          "The assistant is not enabled. Set GOOGLE_GENERATIVE_AI_API_KEY or ANTHROPIC_API_KEY on the server.",
+      },
       { status: 503 },
     );
   }
