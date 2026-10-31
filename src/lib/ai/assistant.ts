@@ -14,7 +14,12 @@ import {
   productForUi,
 } from "@/lib/ai/catalog-filter";
 import { aiConfig } from "@/lib/ai/config";
-import { classifyAiError, getLanguageModel, providerOptionsFor } from "@/lib/ai/provider";
+import {
+  classifyAiError,
+  getLanguageModel,
+  modelName,
+  providerOptionsFor,
+} from "@/lib/ai/provider";
 import type { AssistantEvent, ChatMessage } from "@/lib/ai/types";
 import { getCategories, getProducts } from "@/lib/catalog";
 import { siteConfig } from "@/lib/config";
@@ -83,7 +88,7 @@ async function runAssistant(
   // Primary model first; if it is out of quota (free tiers cap requests per
   // day per model) retry once on the smaller search model before giving up.
   const candidates = [getLanguageModel("assistant"), getLanguageModel("search")].filter(
-    (model, index, all) => all.findIndex((m) => m.modelId === model.modelId) === index,
+    (model, index, all) => all.findIndex((m) => modelName(m) === modelName(model)) === index,
   );
 
   // Every product the tool returned during this reply, keyed by slug, so we
@@ -170,7 +175,7 @@ async function runAssistant(
       // Out of quota before anything was written: try the next model.
       if (kind === "rate-limit" && answer === "" && !isLast) {
         console.warn(
-          `[assistant] ${model.modelId} rate limited, retrying with ${candidates[index + 1].modelId}`,
+          `[assistant] ${modelName(model)} rate limited, retrying with ${modelName(candidates[index + 1])}`,
         );
         seen.clear();
         continue;

@@ -36,6 +36,11 @@ export function getLanguageModel(task: AiTask): LanguageModel {
   }
 }
 
+/** Human-readable id for logs; `LanguageModel` may be a bare gateway string. */
+export function modelName(model: LanguageModel): string {
+  return typeof model === "string" ? model : model.modelId;
+}
+
 /**
  * Provider-specific knobs for a task. Each provider only reads its own key,
  * so passing both is safe.
