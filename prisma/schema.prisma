@@ -1,0 +1,146 @@
+// ---------------------------------------------------------------------------
+// Prisma schema for the eShop storefront.
+//
+// Conventions
+// - Money is stored as integers in the smallest currency unit (paise / cents)
+//   to avoid floating point rounding. Format it in the UI with `formatPrice`.
+// - Every public entity has a URL-safe `slug` in addition to its `id`.
+// - `Cart` is prepared for server-side carts (guest or signed-in). The scaffold
+//   currently keeps the cart in the browser; wire this up together with auth.
+//
+// Useful commands
+//   npm run db:push     # sync schema to the database (fast, no migration files)
+//   npm run db:migrate  # create a migration (preferred once the schema settles)
+//   npm run db:seed     # load the demo catalog
+//   npm run db:studio   # browse data in the browser
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Catalog --------------------------------------------------------
+
+model Category {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  name        String
+  description String?
+  /// Hero image shown on category tiles.
+  image       String?
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Product {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  name           String
+  description    String
+  /// Price in minor units (e.g. 249900 = 2,499.00).
+  priceCents     Int
+  /// Optional "was" price for showing a discount.
+  compareAtCents Int?
+  /// Ordered list of image URLs; the first one is the primary image.
+  images         String[]
+  stock          Int      @default(0)
+  featured       Boolean  @default(false)
+  /// Average rating 0-5 and the number of reviews behind it.
+  rating         Float    @default(0)
+  reviewCount    Int      @default(0)
+  /// Free-form tags used for filtering and as hints for AI search.
+  tags           String[]
+  // TODO(ai-search): add `embedding Unsupported("vector(1024)")?` once the
+  // pgvector extension is enabled, and populate it from the seed script.
+
+  categoryId String
+  category   Category    @relation(fields: [categoryId], references: [id])
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoryId])
+  @@index([featured])
+}
+
+// ---------- Cart -----------------------------------------------------------
+
+model Cart {
+  id String @id @default(cuid())
+  /// Set when the shopper is signed in. Guest carts rely on `sessionToken`.
+  userId       String? @unique
+  /// Random token stored in a cookie for guest carts.
+  sessionToken String? @unique
+  items        CartItem[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model CartItem {
+  id        String  @id @default(cuid())
+  cartId    String
+  cart      Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int     @default(1)
+
+  @@unique([cartId, productId])
+}
+
+// ---------- Orders ---------------------------------------------------------
+
+enum OrderStatus {
+  PENDING // created, awaiting payment
+  PAID // payment confirmed
+  FULFILLED // shipped / delivered
+  CANCELLED
+  REFUNDED
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  /// Short human-friendly reference shown to the customer (e.g. ES-10234).
+  orderNumber String      @unique
+  userId      String?
+  email       String
+  status      OrderStatus @default(PENDING)
+
+  subtotalCents Int
+  shippingCents Int @default(0)
+  taxCents      Int @default(0)
+  totalCents    Int
+  currency      String @default("INR")
+
+  /// Snapshot of the address at checkout time.
+  shippingAddress Json
+  /// e.g. "stripe" | "razorpay" and the provider's payment id.
+  paymentProvider String?
+  paymentRef      String?
+
+  items     OrderItem[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([email])
+  @@index([status])
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  /// Name and unit price are copied at order time so history survives catalog edits.
+  name           String
+  unitPriceCents Int
+  quantity       Int
+}
