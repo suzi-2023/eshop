@@ -7,7 +7,7 @@ import {
   productForUi,
 } from "@/lib/ai/catalog-filter";
 import { aiConfig } from "@/lib/ai/config";
-import { classifyAiError, getLanguageModel } from "@/lib/ai/provider";
+import { classifyAiError, getLanguageModel, providerOptionsFor } from "@/lib/ai/provider";
 import type { AssistantEvent, ChatMessage } from "@/lib/ai/types";
 import { getCategories, getProducts } from "@/lib/catalog";
 import { siteConfig } from "@/lib/config";
@@ -107,6 +107,7 @@ async function runAssistant(
     maxOutputTokens: aiConfig.assistantMaxTokens,
     maxRetries: 1,
     abortSignal: signal,
+    providerOptions: providerOptionsFor("assistant"),
   });
 
   let answer = "";
@@ -123,6 +124,12 @@ async function runAssistant(
       case "finish":
         if (part.finishReason === "content-filter") {
           send({ type: "text", text: "Sorry, I can't help with that request here." });
+        } else if (part.finishReason !== "stop") {
+          // "length" means the token budget ran out (thinking counts too);
+          // log it so the cap in aiConfig can be tuned from real traffic.
+          console.warn(
+            `[assistant] finished with reason "${part.finishReason}" after ${part.totalUsage.outputTokens} output tokens`,
+          );
         }
         break;
     }
@@ -132,6 +139,12 @@ async function runAssistant(
   // few the tool returned, so a terse answer still shows something useful).
   const linked = Array.from(seen.values()).filter((p) => answer.includes(`/products/${p.slug}`));
   const cards = (linked.length > 0 ? linked : Array.from(seen.values())).slice(0, 4);
+
+  // Never leave the shopper with an empty bubble: if the model found products
+  // but produced no prose (budget exhausted, step cap hit), say so briefly.
+  if (answer.trim() === "" && cards.length > 0) {
+    send({ type: "text", text: "Here are the closest matches I found in the catalog:" });
+  }
   if (cards.length > 0) send({ type: "products", products: cards.map(productForUi) });
 }
 

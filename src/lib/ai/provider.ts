@@ -37,6 +37,23 @@ export function getLanguageModel(task: AiTask): LanguageModel {
 }
 
 /**
+ * Provider-specific knobs for a task. Each provider only reads its own key,
+ * so passing both is safe.
+ *
+ * Gemini 3+ models "think" before answering by default, and those thinking
+ * tokens count against `maxOutputTokens` and add seconds of latency. Search
+ * interpretation is a tiny extraction task and the assistant answers from
+ * tool results, so both run with minimal thinking.
+ */
+export function providerOptionsFor(task: AiTask) {
+  return {
+    google: {
+      thinkingConfig: { thinkingLevel: task === "search" ? "minimal" : "low" },
+    },
+  } as const;
+}
+
+/**
  * Classify an SDK error for logging and for choosing a user-facing message.
  * Status codes are the same across providers; everything else is "unknown".
  */

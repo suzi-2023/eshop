@@ -7,7 +7,7 @@ import {
   type CatalogFilter,
 } from "@/lib/ai/catalog-filter";
 import { aiConfig } from "@/lib/ai/config";
-import { classifyAiError, getLanguageModel } from "@/lib/ai/provider";
+import { classifyAiError, getLanguageModel, providerOptionsFor } from "@/lib/ai/provider";
 import { getCategories } from "@/lib/catalog";
 import type { ProductQuery } from "@/lib/types";
 
@@ -60,10 +60,16 @@ export async function interpretSearch(rawQuery: string): Promise<SearchInterpret
       maxOutputTokens: aiConfig.searchMaxTokens,
       maxRetries: 1,
       abortSignal: AbortSignal.timeout(aiConfig.searchTimeoutMs),
+      providerOptions: providerOptionsFor("search"),
     });
 
     // A safety filter can decline the request; treat it like any other miss.
-    if (result.finishReason === "content-filter") return fallback;
+    if (result.finishReason !== "stop") {
+      console.warn(
+        `[ai-search] finished with reason "${result.finishReason}", using keyword search`,
+      );
+      return fallback;
+    }
 
     // `output` is validated against the schema (throws if the model's JSON
     // did not match), so the filter is safe to use as-is.

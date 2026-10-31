@@ -24,8 +24,11 @@ const defaultModels: Record<AiProvider, Record<AiTask, string>> = {
 };
 
 export const aiConfig = {
-  /** Hard cap on tokens generated per assistant reply (cost + latency guard). */
-  assistantMaxTokens: 1024,
+  /**
+   * Hard cap on tokens generated per assistant reply (cost + latency guard).
+   * Thinking tokens count against this on Gemini, hence the headroom.
+   */
+  assistantMaxTokens: 2048,
   /** Max model round-trips per reply: initial answer + tool calls. */
   assistantMaxSteps: 4,
   /** Only the most recent turns are sent back to the model. */
@@ -36,8 +39,8 @@ export const aiConfig = {
 
   searchMaxTokens: 512,
   searchMaxQueryChars: 300,
-  /** Abort a search interpretation that takes longer than this. */
-  searchTimeoutMs: 20_000,
+  /** Abort a search interpretation that takes longer than this (cold starts included). */
+  searchTimeoutMs: 30_000,
 } as const;
 
 const hasGeminiKey = () => Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
