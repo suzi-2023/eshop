@@ -1,7 +1,7 @@
 import "server-only";
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
-import { APICallError, type LanguageModel } from "ai";
+import { APICallError, RetryError, type LanguageModel } from "ai";
 import { aiModelId, resolveAiProvider, type AiTask } from "@/lib/ai/config";
 
 /**
@@ -61,6 +61,8 @@ export function classifyAiError(
   error: unknown,
 ): "auth" | "rate-limit" | "aborted" | "api" | "unknown" {
   if (error instanceof Error && error.name === "AbortError") return "aborted";
+  // After the SDK's own retries give up, the real cause sits inside RetryError.
+  if (RetryError.isInstance(error)) return classifyAiError(error.lastError);
   if (APICallError.isInstance(error)) {
     if (error.statusCode === 401 || error.statusCode === 403) return "auth";
     // Google answers a bad key with 400 + "API_KEY_INVALID" instead of 401.

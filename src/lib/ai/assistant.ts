@@ -1,5 +1,12 @@
 import "server-only";
-import { ToolChoiceViolationError, stepCountIs, streamText, tool, type ModelMessage } from "ai";
+import {
+  ToolChoiceViolationError,
+  stepCountIs,
+  streamText,
+  tool,
+  type LanguageModel,
+  type ModelMessage,
+} from "ai";
 import {
   buildCatalogFilterSchema,
   filterToQuery,
@@ -71,8 +78,13 @@ async function runAssistant(
   send: (event: AssistantEvent) => void,
   signal?: AbortSignal,
 ) {
-  const model = getLanguageModel("assistant");
   const categories = await getCategories();
+
+  // Primary model first; if it is out of quota (free tiers cap requests per
+  // day per model) retry once on the smaller search model before giving up.
+  const candidates = [getLanguageModel("assistant"), getLanguageModel("search")].filter(
+    (model, index, all) => all.findIndex((m) => m.modelId === model.modelId) === index,
+  );
 
   // Every product the tool returned during this reply, keyed by slug, so we
   // can attach cards for the ones the final answer actually mentions.
@@ -97,32 +109,33 @@ async function runAssistant(
 
   const messages: ModelMessage[] = history.map((m) => ({ role: m.role, content: m.content }));
 
-  const result = streamText({
-    model,
-    system: SYSTEM_PROMPT,
-    messages,
-    tools: { search_catalog: searchCatalog },
-    // Each model call or tool execution is one step.
-    stopWhen: stepCountIs(aiConfig.assistantMaxSteps),
-    // On the final step withdraw the tool entirely so the model must write its
-    // answer from the results it already has, instead of ending the loop
-    // mid-search with no prose (finish reason "tool-calls"). Removing the tool
-    // is more reliable than `toolChoice: "none"`, which some models ignore.
-    prepareStep: ({ stepNumber }) =>
-      stepNumber >= aiConfig.assistantMaxSteps - 1 ? { activeTools: [] } : undefined,
-    maxOutputTokens: aiConfig.assistantMaxTokens,
-    maxRetries: 1,
-    abortSignal: signal,
-    providerOptions: providerOptionsFor("assistant"),
-  });
+  /** Stream one full reply from `model`; returns the prose it produced. */
+  async function streamReply(model: LanguageModel) {
+    const result = streamText({
+      model,
+      system: SYSTEM_PROMPT,
+      messages,
+      tools: { search_catalog: searchCatalog },
+      // Each model call or tool execution is one step.
+      stopWhen: stepCountIs(aiConfig.assistantMaxSteps),
+      // On the final step withdraw the tool entirely so the model must write
+      // its answer from the results it already has, instead of ending the
+      // loop mid-search with no prose (finish reason "tool-calls"). Removing
+      // the tool is more reliable than `toolChoice: "none"`, which some
+      // models ignore.
+      prepareStep: ({ stepNumber }) =>
+        stepNumber >= aiConfig.assistantMaxSteps - 1 ? { activeTools: [] } : undefined,
+      maxOutputTokens: aiConfig.assistantMaxTokens,
+      maxRetries: 1,
+      abortSignal: signal,
+      providerOptions: providerOptionsFor("assistant"),
+    });
 
-  let answer = "";
-
-  try {
+    let text = "";
     for await (const part of result.fullStream) {
       switch (part.type) {
         case "text-delta":
-          answer += part.text;
+          text += part.text;
           send({ type: "text", text: part.text });
           break;
         case "error":
@@ -141,12 +154,36 @@ async function runAssistant(
           break;
       }
     }
-  } catch (error) {
-    // A model that insists on calling a tool it was not offered ends the
-    // stream with this error; the products it already found are still worth
-    // showing, so fall through to the cards instead of failing the reply.
-    if (!ToolChoiceViolationError.isInstance(error) || seen.size === 0) throw error;
-    console.warn("[assistant] model attempted a tool call on the final step; showing results");
+    return text;
+  }
+
+  let answer = "";
+
+  for (const [index, model] of candidates.entries()) {
+    try {
+      answer = await streamReply(model);
+      break;
+    } catch (error) {
+      const kind = classifyAiError(error);
+      const isLast = index === candidates.length - 1;
+
+      // Out of quota before anything was written: try the next model.
+      if (kind === "rate-limit" && answer === "" && !isLast) {
+        console.warn(
+          `[assistant] ${model.modelId} rate limited, retrying with ${candidates[index + 1].modelId}`,
+        );
+        seen.clear();
+        continue;
+      }
+      // A model that insists on calling a tool it was not offered ends the
+      // stream with this error; the products it already found are still
+      // worth showing, so fall through to the cards instead of failing.
+      if (ToolChoiceViolationError.isInstance(error) && seen.size > 0) {
+        console.warn("[assistant] model attempted a tool call on the final step; showing results");
+        break;
+      }
+      throw error;
+    }
   }
 
   // Attach cards for products linked in the answer (fall back to the first
