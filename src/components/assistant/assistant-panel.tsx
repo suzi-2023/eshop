@@ -230,7 +230,7 @@ function TurnView({ turn, streaming }: { turn: Turn; streaming: boolean }) {
             Searching the catalog
           </span>
         ) : (
-          <MessageContent text={turn.content} />
+          <MessageContent text={turn.content} products={turn.products} />
         )}
         {turn.error && <p className="mt-2 text-sm text-danger">{turn.error}</p>}
       </div>

@@ -1,14 +1,25 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import type { AssistantProduct } from "@/lib/ai/types";
 
 /**
  * Renders the small Markdown subset the assistant is asked to produce:
  * paragraphs, "- " bullet lists, **bold**, and [label](url) links.
  * Deliberately tiny instead of a full Markdown library: the model output is
  * constrained by the system prompt, and this avoids rendering raw HTML.
+ *
+ * Smaller models sometimes garble link targets ("(url)" or "(url: /x)"), so
+ * when `products` is known a link is resolved by its label as well.
  */
-export function MessageContent({ text }: { text: string }) {
+export function MessageContent({
+  text,
+  products = [],
+}: {
+  text: string;
+  products?: AssistantProduct[];
+}) {
   const blocks = splitBlocks(text);
+  const byName = new Map(products.map((p) => [p.name.toLowerCase(), p.url]));
 
   return (
     <div className="space-y-2 text-sm leading-relaxed">
@@ -16,11 +27,11 @@ export function MessageContent({ text }: { text: string }) {
         block.type === "list" ? (
           <ul key={i} className="list-disc space-y-1 pl-5">
             {block.items.map((item, j) => (
-              <li key={j}>{renderInline(item)}</li>
+              <li key={j}>{renderInline(item, byName)}</li>
             ))}
           </ul>
         ) : (
-          <p key={i}>{renderInline(block.text)}</p>
+          <p key={i}>{renderInline(block.text, byName)}</p>
         ),
       )}
     </div>
@@ -63,19 +74,32 @@ function splitBlocks(text: string): Block[] {
   return blocks;
 }
 
-// Matches **bold** or [label](url); everything else is plain text.
-const INLINE = /(\*\*[^*]+\*\*|\[[^\]]+\]\([^)\s]+\))/g;
+// Matches **bold** or [label](target); everything else is plain text.
+const INLINE = /(\*\*[^*]+\*\*|\[[^\]]+\]\([^)]*\))/g;
+const LINK = /^\[([^\]]+)\]\(([^)]*)\)$/;
 
-function renderInline(text: string): ReactNode[] {
+/**
+ * Turn a link target into a same-site path, or null if it cannot be trusted.
+ * Accepts "/products/x", "url: /products/x" and, via `byName`, a label that
+ * matches a known product when the target itself is unusable.
+ */
+function resolveHref(label: string, rawTarget: string, byName: Map<string, string>) {
+  const target = rawTarget.replace(/^url:\s*/i, "").trim();
+  if (target.startsWith("/")) return target;
+  return byName.get(label.trim().toLowerCase()) ?? null;
+}
+
+function renderInline(text: string, byName: Map<string, string>): ReactNode[] {
   return text.split(INLINE).map((part, i) => {
     if (part.startsWith("**") && part.endsWith("**")) {
       return <strong key={i}>{part.slice(2, -2)}</strong>;
     }
-    const link = part.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
+    const link = part.match(LINK);
     if (link) {
-      const [, label, href] = link;
+      const [, label, target] = link;
+      const href = resolveHref(label, target, byName);
       // Only same-site links are navigable; anything else renders as text.
-      return href.startsWith("/") ? (
+      return href ? (
         <Link
           key={i}
           href={href}
