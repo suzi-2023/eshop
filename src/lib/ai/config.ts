@@ -29,8 +29,11 @@ export const aiConfig = {
    * Thinking tokens count against this on Gemini, hence the headroom.
    */
   assistantMaxTokens: 2048,
-  /** Max model round-trips per reply: initial answer + tool calls. */
-  assistantMaxSteps: 4,
+  /**
+   * Max model round-trips per reply (tool calls + the final answer). The
+   * last step is forced to be a text answer, see `prepareStep` in assistant.ts.
+   */
+  assistantMaxSteps: 5,
   /** Only the most recent turns are sent back to the model. */
   assistantMaxHistory: 12,
   assistantMaxMessageChars: 2000,

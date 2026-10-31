@@ -58,7 +58,9 @@ export async function interpretSearch(rawQuery: string): Promise<SearchInterpret
       prompt: query,
       output: Output.object({ schema }),
       maxOutputTokens: aiConfig.searchMaxTokens,
-      maxRetries: 1,
+      // Free-tier Gemini occasionally answers 503 "high demand"; the SDK
+      // retries those with backoff before we fall back to keyword search.
+      maxRetries: 2,
       abortSignal: AbortSignal.timeout(aiConfig.searchTimeoutMs),
       providerOptions: providerOptionsFor("search"),
     });

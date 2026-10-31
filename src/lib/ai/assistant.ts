@@ -104,6 +104,11 @@ async function runAssistant(
     tools: { search_catalog: searchCatalog },
     // Each model call or tool execution is one step.
     stopWhen: stepCountIs(aiConfig.assistantMaxSteps),
+    // On the final step forbid further tool calls so the model must write its
+    // answer from the results it already has, instead of ending the loop
+    // mid-search with no prose (finish reason "tool-calls").
+    prepareStep: ({ stepNumber }) =>
+      stepNumber >= aiConfig.assistantMaxSteps - 1 ? { toolChoice: "none" } : undefined,
     maxOutputTokens: aiConfig.assistantMaxTokens,
     maxRetries: 1,
     abortSignal: signal,
