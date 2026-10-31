@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { isAiConfigured } from "@/lib/ai/config";
 import { siteConfig } from "@/lib/config";
 import { formatPrice } from "@/lib/utils";
 import { Container } from "@/components/ui/container";
@@ -13,6 +14,9 @@ import { SearchForm } from "@/components/layout/search-form";
  * Server component; the interactive pieces (menu, search, cart) are client islands.
  */
 export function Header() {
+  // Read on the server; the client components only learn a boolean.
+  const aiEnabled = isAiConfigured();
+
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
       <p className="bg-primary py-2 text-center text-xs font-medium tracking-wide text-primary-foreground">
@@ -21,7 +25,7 @@ export function Header() {
       </p>
 
       <Container className="flex h-16 items-center gap-2 sm:gap-4">
-        <MobileMenu />
+        <MobileMenu aiEnabled={aiEnabled} />
         <Logo />
 
         <nav aria-label="Primary" className="ml-6 hidden items-center gap-1 lg:flex">
@@ -39,7 +43,7 @@ export function Header() {
         <div className="ml-auto hidden w-full max-w-xs md:block">
           {/* useSearchParams inside SearchForm needs a Suspense boundary. */}
           <Suspense>
-            <SearchForm />
+            <SearchForm aiEnabled={aiEnabled} />
           </Suspense>
         </div>
 

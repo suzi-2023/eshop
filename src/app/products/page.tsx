@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { SearchX } from "lucide-react";
+import { SearchX, Sparkles } from "lucide-react";
 import { Suspense } from "react";
+import { isAiConfigured } from "@/lib/ai/config";
 import { getCategories, getProducts } from "@/lib/catalog";
 import type { ProductQuery } from "@/lib/types";
-import { parseProductQuery, productsUrl } from "@/lib/urls";
+import { parseAiFlag, parseProductQuery, productsUrl, type ProductsUrlOptions } from "@/lib/urls";
+import { Badge } from "@/components/ui/badge";
 import { buttonClasses } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
 import { CatalogToolbar } from "@/components/catalog/catalog-toolbar";
@@ -26,7 +28,12 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
 }
 
 export default async function ProductsPage({ searchParams }: Props) {
-  const query = parseProductQuery(await searchParams);
+  const params = await searchParams;
+  const query = parseProductQuery(params);
+  // AI mode needs a query and a configured API key; otherwise it is a no-op.
+  const ai = parseAiFlag(params) && Boolean(query.q) && isAiConfigured();
+  const urlState: ProductsUrlOptions = { ...query, ai };
+
   const categories = await getCategories();
 
   // An unknown category slug in the URL is treated as "no filter".
@@ -49,49 +56,113 @@ export default async function ProductsPage({ searchParams }: Props) {
       </header>
 
       <div className="mt-8">
-        <CatalogToolbar categories={categories} query={query} />
+        <CatalogToolbar categories={categories} query={urlState} />
       </div>
 
       <div className="mt-8">
         {/* Keyed so the skeleton shows again when filters change. */}
-        <Suspense key={productsUrl(query)} fallback={<ProductGridSkeleton />}>
-          <ProductResults query={query} />
+        <Suspense key={productsUrl(urlState)} fallback={<ProductGridSkeleton />}>
+          {ai ? <AiSearchResults urlState={urlState} /> : <ProductResults query={query} />}
         </Suspense>
       </div>
     </Container>
   );
 }
 
-/** Streams in separately from the page shell. */
+/** Plain keyword / filter results. Streams in separately from the page shell. */
 async function ProductResults({ query }: { query: ProductQuery }) {
   const products = await getProducts(query);
-
-  if (products.length === 0) {
-    return (
-      <div className="flex flex-col items-center rounded-3xl border border-dashed border-border px-6 py-20 text-center">
-        <span className="grid size-14 place-items-center rounded-full bg-muted text-muted-foreground">
-          <SearchX className="size-6" aria-hidden />
-        </span>
-        <h2 className="mt-5 text-xl font-semibold">No products found</h2>
-        <p className="mt-2 max-w-sm text-muted-foreground text-pretty">
-          Try a different search term or clear the filters to see the whole catalog.
-        </p>
-        <Link
-          href={productsUrl()}
-          className={buttonClasses({ variant: "outline", className: "mt-8" })}
-        >
-          Clear filters
-        </Link>
-      </div>
-    );
-  }
+  if (products.length === 0) return <EmptyState />;
 
   return (
     <>
-      <p className="mb-4 text-sm text-muted-foreground">
-        {products.length} {products.length === 1 ? "product" : "products"}
-      </p>
+      <p className="mb-4 text-sm text-muted-foreground">{countLabel(products.length)}</p>
       <ProductGrid products={products} />
     </>
   );
+}
+
+/**
+ * AI-interpreted results: Claude turns the sentence into filters, the
+ * catalog runs them. Explicit URL filters (category chip, sort) win over the
+ * model's guesses so the toolbar keeps working as expected.
+ */
+async function AiSearchResults({ urlState }: { urlState: ProductsUrlOptions }) {
+  // Imported lazily so the Anthropic SDK is only loaded on AI requests.
+  const { interpretSearch } = await import("@/lib/ai/search");
+  const interpretation = await interpretSearch(urlState.q ?? "");
+
+  const query: ProductQuery = {
+    ...interpretation.query,
+    category: urlState.category ?? interpretation.query.category,
+    sort: urlState.sort ?? interpretation.query.sort,
+  };
+  const products = await getProducts(query);
+  const exactUrl = productsUrl({ ...urlState, ai: false });
+
+  return (
+    <>
+      <div className="mb-5 flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-muted/40 px-4 py-3 text-sm">
+        <Sparkles className="size-4 text-accent" aria-hidden />
+        {interpretation.source === "ai" ? (
+          <>
+            <span className="text-muted-foreground">Understood as</span>
+            {interpretation.summary.length > 0 ? (
+              interpretation.summary.map((part) => (
+                <Badge key={part} variant="accent">
+                  {part}
+                </Badge>
+              ))
+            ) : (
+              <Badge variant="accent">everything</Badge>
+            )}
+          </>
+        ) : (
+          <span className="text-muted-foreground">
+            AI search is unavailable right now, showing keyword matches instead.
+          </span>
+        )}
+        <Link href={exactUrl} className="ml-auto font-medium text-foreground hover:text-accent">
+          Search exact words instead
+        </Link>
+      </div>
+
+      {products.length === 0 ? (
+        <EmptyState exactUrl={exactUrl} />
+      ) : (
+        <>
+          <p className="mb-4 text-sm text-muted-foreground">{countLabel(products.length)}</p>
+          <ProductGrid products={products} />
+        </>
+      )}
+    </>
+  );
+}
+
+function EmptyState({ exactUrl }: { exactUrl?: string }) {
+  return (
+    <div className="flex flex-col items-center rounded-3xl border border-dashed border-border px-6 py-20 text-center">
+      <span className="grid size-14 place-items-center rounded-full bg-muted text-muted-foreground">
+        <SearchX className="size-6" aria-hidden />
+      </span>
+      <h2 className="mt-5 text-xl font-semibold">No products found</h2>
+      <p className="mt-2 max-w-sm text-muted-foreground text-pretty">
+        Try a different search term or clear the filters to see the whole catalog.
+      </p>
+      <div className="mt-8 flex flex-wrap justify-center gap-3">
+        {exactUrl && (
+          <Link href={exactUrl} className={buttonClasses({ variant: "outline" })}>
+            Search exact words
+          </Link>
+        )}
+        <Link href={productsUrl()} className={buttonClasses({ variant: "outline" })}>
+          Clear filters
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function countLabel(count: number) {
+  return `${count} ${count === 1 ? "product" : "products"}`;
 }

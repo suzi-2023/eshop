@@ -1,16 +1,20 @@
 import Link from "next/link";
-import type { Category, ProductQuery } from "@/lib/types";
-import { productsUrl } from "@/lib/urls";
+import type { Category } from "@/lib/types";
+import { productsUrl, type ProductsUrlOptions } from "@/lib/urls";
 import { cn } from "@/lib/utils";
 import { SortSelect } from "@/components/catalog/sort-select";
 
-/** Category filter chips + sort control shown above the product grid. */
+/**
+ * Category filter chips + sort control shown above the product grid.
+ * `query` carries the current URL state (including the AI flag) so every
+ * link preserves the shopper's other choices.
+ */
 export function CatalogToolbar({
   categories,
   query,
 }: {
   categories: Category[];
-  query: ProductQuery;
+  query: ProductsUrlOptions;
 }) {
   const chips = [{ slug: undefined, name: "All" }, ...categories];
 

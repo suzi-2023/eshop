@@ -7,6 +7,9 @@ import { isSortOption, type ProductQuery } from "@/lib/types";
 
 type RawSearchParams = Record<string, string | string[] | undefined>;
 
+/** Catalog query plus the UI-only `ai` flag (AI-interpreted search on/off). */
+export type ProductsUrlOptions = ProductQuery & { ai?: boolean };
+
 /** First value of a search param, ignoring repeated keys. */
 function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -25,12 +28,19 @@ export function parseProductQuery(params: RawSearchParams): ProductQuery {
   };
 }
 
+/** `?ai=1` asks the products page to interpret `q` with the AI search. */
+export function parseAiFlag(params: RawSearchParams): boolean {
+  return first(params.ai) === "1";
+}
+
 /** Build `/products?...` from a query, omitting defaults and empty values. */
-export function productsUrl(query: ProductQuery = {}) {
+export function productsUrl(options: ProductsUrlOptions = {}) {
   const params = new URLSearchParams();
-  if (query.q) params.set("q", query.q);
-  if (query.category) params.set("category", query.category);
-  if (query.sort && query.sort !== "featured") params.set("sort", query.sort);
+  if (options.q) params.set("q", options.q);
+  if (options.category) params.set("category", options.category);
+  if (options.sort && options.sort !== "featured") params.set("sort", options.sort);
+  // The AI flag only means something together with a query.
+  if (options.ai && options.q) params.set("ai", "1");
 
   const qs = params.toString();
   return qs ? `/products?${qs}` : "/products";

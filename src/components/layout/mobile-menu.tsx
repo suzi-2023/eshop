@@ -17,7 +17,7 @@ import { SearchForm } from "@/components/layout/search-form";
  * which would otherwise become the containing block for the fixed overlay and
  * clip it to the header's box.
  */
-export function MobileMenu() {
+export function MobileMenu({ aiEnabled = false }: { aiEnabled?: boolean }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
 
@@ -66,7 +66,7 @@ export function MobileMenu() {
               </div>
 
               <Suspense>
-                <SearchForm onSubmitted={close} />
+                <SearchForm aiEnabled={aiEnabled} onSubmitted={close} />
               </Suspense>
 
               <nav aria-label="Mobile" className="flex flex-col">

@@ -49,8 +49,17 @@ export function isSortOption(value: unknown): value is SortOption {
 export type ProductQuery = {
   /** Free-text search across name, description and tags. */
   q?: string;
+  /**
+   * Additional search terms, matched the same way as `q`. A product matches
+   * when ANY term matches, so AI-extracted keyword lists widen the search
+   * while price/category filters narrow it.
+   */
+  terms?: string[];
   /** Category slug. */
   category?: string;
+  /** Inclusive price bounds in minor units (paise / cents). */
+  minPriceCents?: number;
+  maxPriceCents?: number;
   sort?: SortOption;
   limit?: number;
 };

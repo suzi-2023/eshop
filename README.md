@@ -9,7 +9,9 @@ A modern, AI-ready e-commerce storefront built with Next.js 16, TypeScript, Tail
 - **Zero-config dev mode**: without a `DATABASE_URL` the app serves the bundled demo catalog, so the UI runs right after `npm install`.
 - **Cart**: client-side, persisted in `localStorage` (server-side cart table is ready for when auth lands).
 
-Not yet included (planned next steps): authentication, checkout and payments, admin, and the AI features (natural-language search, shopping assistant, description generation).
+- **AI features (Claude API)**: natural-language product search and a streaming shopping assistant that recommends only products from the catalog. Both switch on when `ANTHROPIC_API_KEY` is set and degrade gracefully when it is not.
+
+Not yet included (planned next steps): authentication, checkout and payments, admin, and AI-written product descriptions.
 
 ## Getting started
 
@@ -36,6 +38,20 @@ npm run db:seed
 
 Restart `npm run dev`; the app now reads from Postgres. `npm run db:studio` opens a data browser.
 
+### Enable the AI features
+
+1. Create an API key at https://platform.claude.com and set a monthly spend limit there.
+2. Add `ANTHROPIC_API_KEY` to `.env` (locally) and to Vercel's environment variables.
+
+That turns on two features:
+
+- **AI search**: the sparkle toggle in the search box sends the query with `?ai=1`. `src/lib/ai/search.ts` asks Claude (structured output) to turn the sentence into catalog filters (keywords, category, price range, sort); the normal catalog query then runs them. The products page shows what was understood and offers an exact-match fallback. If the API is unavailable the page silently falls back to keyword search.
+- **Shopping assistant**: the chat panel on the home page streams from `POST /api/assistant`. `src/lib/ai/assistant.ts` runs a small tool-use loop with one tool, `search_catalog`, so the model can only recommend products it actually found, and every link points at a real product page.
+
+Cost controls live in `src/lib/ai/config.ts`: Haiku for search interpretation, Sonnet for the assistant, a 1,024-token reply cap, at most four API round-trips per reply and a 12-message history window. Override the models with `AI_SEARCH_MODEL` / `AI_ASSISTANT_MODEL` (for example `claude-opus-5-5` for the assistant) when quality matters more than cost. There is no per-user rate limiting yet; add one (for example Upstash Ratelimit on the two routes) before launch.
+
+`GET /api/search?q=...` returns the same AI interpretation as JSON for debugging or a future mobile app.
+
 ## Project structure
 
 ```
@@ -45,17 +61,21 @@ prisma/
 src/
   app/                 Routes (App Router)
     page.tsx           Home
-    products/          Listing + [slug] detail page
+    products/          Listing (keyword or AI search) + [slug] detail page
     cart/              Cart page
+    api/assistant/     Streaming shopping-assistant endpoint (NDJSON)
+    api/search/        JSON endpoint for AI search
   components/
     ui/                Design-system primitives (Button, Badge, Container, ...)
-    layout/            Header, footer, mobile menu, search, cart button
+    layout/            Header, footer, mobile menu, search (with AI toggle), cart button
     product/           Product card, grid, gallery, price, rating, add-to-cart
-    home/              Hero, category tiles, value props, AI banner
+    home/              Hero, category tiles, value props, assistant section
+    assistant/         Chat panel and its Markdown-lite renderer
     catalog/           Filter chips and sort control
     cart/              Cart page view
   data/demo-catalog.ts Demo categories and products (seed + fallback source)
   lib/
+    ai/                Claude integration: config, client, search, assistant, shared filter schema
     catalog.ts         All catalog reads (Prisma or demo fallback)
     prisma.ts          Prisma client singleton
     config.ts          Site name, currency, nav, shipping thresholds

@@ -40,13 +40,19 @@ export async function getProducts(query: ProductQuery = {}): Promise<Product[]> 
   const where: Prisma.ProductWhereInput = {};
 
   if (query.category) where.category = { slug: query.category };
-  if (query.q?.trim()) {
-    const q = query.q.trim();
-    where.OR = [
-      { name: { contains: q, mode: "insensitive" } },
-      { description: { contains: q, mode: "insensitive" } },
-      { tags: { has: q.toLowerCase() } },
-    ];
+
+  // Any term may match name, description or tags (OR across terms).
+  const terms = searchTerms(query);
+  if (terms.length > 0) {
+    where.OR = terms.flatMap((term) => [
+      { name: { contains: term, mode: "insensitive" as const } },
+      { description: { contains: term, mode: "insensitive" as const } },
+      { tags: { has: term } },
+    ]);
+  }
+
+  if (query.minPriceCents !== undefined || query.maxPriceCents !== undefined) {
+    where.priceCents = { gte: query.minPriceCents, lte: query.maxPriceCents };
   }
 
   const rows = await prisma.product.findMany({
@@ -77,6 +83,25 @@ export async function getProductBySlug(slug: string): Promise<Product | null> {
 export async function getRelatedProducts(product: Product, limit = 4): Promise<Product[]> {
   const products = await getProducts({ category: product.category.slug, sort: "rating" });
   return products.filter((p) => p.id !== product.id).slice(0, limit);
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+/** Normalised, de-duplicated search terms from `q` and `terms` (lowercase). */
+function searchTerms(query: ProductQuery): string[] {
+  const raw = [query.q ?? "", ...(query.terms ?? [])];
+  const cleaned = raw.map((t) => t.trim().toLowerCase()).filter(Boolean);
+  return Array.from(new Set(cleaned));
+}
+
+function matchesTerm(product: Product, term: string) {
+  return (
+    product.name.toLowerCase().includes(term) ||
+    product.description.toLowerCase().includes(term) ||
+    product.tags.some((tag) => tag.includes(term))
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -177,15 +202,15 @@ const demo = {
     let list = this.rows();
 
     if (query.category) list = list.filter((p) => p.category.slug === query.category);
-    if (query.q?.trim()) {
-      const q = query.q.trim().toLowerCase();
-      list = list.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.description.toLowerCase().includes(q) ||
-          p.tags.some((t) => t.includes(q)),
-      );
+
+    const terms = searchTerms(query);
+    if (terms.length > 0) {
+      list = list.filter((p) => terms.some((term) => matchesTerm(p, term)));
     }
+
+    const { minPriceCents, maxPriceCents } = query;
+    if (minPriceCents !== undefined) list = list.filter((p) => p.priceCents >= minPriceCents);
+    if (maxPriceCents !== undefined) list = list.filter((p) => p.priceCents <= maxPriceCents);
 
     const sort = query.sort ?? "featured";
     list.sort((a, b) => {

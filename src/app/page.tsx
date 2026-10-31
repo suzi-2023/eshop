@@ -2,7 +2,7 @@ import { getCategories, getFeaturedProducts } from "@/lib/catalog";
 import { productsUrl } from "@/lib/urls";
 import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/components/ui/section-heading";
-import { AiBanner } from "@/components/home/ai-banner";
+import { AiAssistantSection } from "@/components/home/ai-assistant-section";
 import { CategoryTiles } from "@/components/home/category-tiles";
 import { Hero } from "@/components/home/hero";
 import { ValueProps } from "@/components/home/value-props";
@@ -49,7 +49,7 @@ export default async function HomePage() {
           </div>
         </section>
 
-        <AiBanner />
+        <AiAssistantSection />
       </Container>
     </>
   );

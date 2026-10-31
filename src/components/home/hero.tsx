@@ -32,7 +32,7 @@ export function Hero() {
         <div className="max-w-xl">
           <Badge variant="accent">
             <Sparkles className="size-3.5" aria-hidden />
-            AI-powered search, coming soon
+            New: AI-powered search
           </Badge>
 
           <h1 className="mt-6 text-4xl font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">

@@ -2,11 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
-import { SORT_OPTIONS, isSortOption, type ProductQuery } from "@/lib/types";
-import { productsUrl } from "@/lib/urls";
+import { SORT_OPTIONS, isSortOption } from "@/lib/types";
+import { productsUrl, type ProductsUrlOptions } from "@/lib/urls";
 
 /** Sort dropdown; changing it updates the URL so results are shareable. */
-export function SortSelect({ query }: { query: ProductQuery }) {
+export function SortSelect({ query }: { query: ProductsUrlOptions }) {
   const router = useRouter();
 
   return (
